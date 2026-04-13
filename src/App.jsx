@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useReducer, createContext, useContext, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, Legend } from "recharts";
 import { RAW_COMPACT } from "./_data.js";
+import { exportBurnsheetExcel } from "./exportExcel.js";
 
 /* ═══════════════════ COLOR TOKENS & STYLES ═══════════════════ */
 const C = {
@@ -461,6 +462,21 @@ function MonthlyBurnComparison() {
 /* ═══════════════════ DONUT COLORS ═══════════════════ */
 const DONUT_COLORS = ["#2563eb","#1d7ca6","#0d9488","#14a085","#22893a","#4d9e2e","#84a01e","#b5a216","#d4a017","#e8922b","#ec6d3b","#ef4444","#e8366d","#c026d3","#7c3aed","#4f46e5","#06b6d4","#059669","#ca8a04","#dc2626"];
 
+/* ═══════════════════ DONUT LABEL RENDERER ═══════════════════ */
+const RADIAN = Math.PI / 180;
+const renderDonutLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, pct }) => {
+  if (!pct || pct < 3) return null; // hide labels for slices < 3%
+  const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  return (
+    <text x={x} y={y} fill="#fff" textAnchor="middle" dominantBaseline="central"
+      style={{ fontSize: 11, fontWeight: 700, textShadow: "0 1px 2px rgba(0,0,0,0.3)" }}>
+      {pct}%
+    </text>
+  );
+};
+
 /* ═══════════════════ MISSING CLASSIFICATIONS ALERT ═══════════════════ */
 function MissingClassificationsAlert() {
   const { state, dispatch } = useContext(AppContext);
@@ -562,7 +578,8 @@ function MissingClassificationsAlert() {
           <ResponsiveContainer width="100%" height={240}>
             <PieChart>
               <Pie data={donutData} dataKey="value" nameKey="poc" cx="50%" cy="50%" innerRadius={55} outerRadius={100}
-                stroke="#fff" strokeWidth={2} paddingAngle={1}>
+                stroke="#fff" strokeWidth={2} paddingAngle={1}
+                label={renderDonutLabel} labelLine={false} isAnimationActive={false}>
                 {donutData.map((d, i) => <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />)}
               </Pie>
               <Tooltip content={<DonutTooltipC />} />
@@ -810,26 +827,24 @@ function Chatbot() {
   const [ctxTitle, setCtxTitle] = useState("");
   const [typing, setTyping] = useState(false);
   const [hoverBtn, setHoverBtn] = useState(false);
-  const [actionScrollX, setActionScrollX] = useState(0);
   const [activeActionIdx, setActiveActionIdx] = useState(-1);
   const inputRef = useRef(null);
   const fileRef = useRef(null);
-  const pocFileRef = useRef(null);
   const scrollRef = useRef(null);
   const actionBarRef = useRef(null);
 
-  const CHAT_WIDTH = 420;
-  const CHAT_HEIGHT = 600;
+  const CHAT_W = 390;
+  const CHAT_H = 380;
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [msgs, typing]);
 
-  /* Auto-expand textarea: no scrollbars, cursor at end */
+  /* Auto-expand textarea */
   useEffect(() => {
     if (inputRef.current) {
-      inputRef.current.style.height = "auto";
-      inputRef.current.style.height = inputRef.current.scrollHeight + "px";
+      inputRef.current.style.height = "0";
+      inputRef.current.style.height = Math.max(36, inputRef.current.scrollHeight) + "px";
     }
   }, [input]);
 
@@ -840,14 +855,16 @@ function Chatbot() {
         inputRef.current.focus();
         const len = inputRef.current.value.length;
         inputRef.current.setSelectionRange(len, len);
+        inputRef.current.style.height = "0";
+        inputRef.current.style.height = Math.max(36, inputRef.current.scrollHeight) + "px";
       }
-    }, 50);
+    }, 30);
   };
 
   /* Respond logic */
   const respond = (text) => {
     const lower = text.toLowerCase().trim();
-    if (lower === "/clear") { setMsgs([]); setInput(""); setFile(null); setPocStep(null); setCtxTitle(""); return; }
+    if (lower === "/clear") { setMsgs([]); setInput(""); setFile(null); setPocStep(null); setCtxTitle(""); setActiveActionIdx(-1); return; }
 
     setMsgs(prev => [...prev, { sender: "user", text, file: file ? file.name : null }]);
     setFile(null);
@@ -896,40 +913,18 @@ function Chatbot() {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
-  /* POC file upload handler */
-  const handlePocFileUpload = (type) => (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
-    setFile(f);
-    setPocStep(null);
-    if (type === "poc") {
-      setCtxTitle("CREATE A NEW POC");
-      setInput("Create a new POC using the uploaded Excel file.\n\n");
-    } else {
-      setCtxTitle("ADD A NEW RESOURCE");
-      setInput("Add a new resource using the uploaded Excel file.\n\n");
-    }
-    focusEnd();
-  };
-
-  /* Action bar scroll — selects next/prev button and triggers its action */
+  /* Action bar scroll */
   const scrollAction = (dir) => {
     const total = actionButtons.length;
     if (total === 0) return;
     let newIdx;
-    if (dir === "right") {
-      newIdx = activeActionIdx < total - 1 ? activeActionIdx + 1 : 0;
-    } else {
-      newIdx = activeActionIdx > 0 ? activeActionIdx - 1 : total - 1;
-    }
+    if (dir === "right") { newIdx = activeActionIdx < total - 1 ? activeActionIdx + 1 : 0; }
+    else { newIdx = activeActionIdx > 0 ? activeActionIdx - 1 : total - 1; }
     setActiveActionIdx(newIdx);
     actionButtons[newIdx].action();
-    // scroll the selected button into view
     if (actionBarRef.current) {
-      const children = actionBarRef.current.children;
-      if (children[newIdx]) {
-        children[newIdx].scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-      }
+      const ch = actionBarRef.current.children;
+      if (ch[newIdx]) ch[newIdx].scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
     }
   };
 
@@ -937,192 +932,139 @@ function Chatbot() {
   const actionButtons = [
     {
       icon: "💲", label: "$",
-      action: () => {
-        setInput("Change the dollar value from 86 to ");
-        setCtxTitle("CHANGE DOLLAR VALUE");
-        setPocStep(null);
-        setFile(null);
-        focusEnd();
-      },
+      action: () => { setInput("Change the dollar value from 86 to "); setCtxTitle("CHANGE DOLLAR VALUE"); setPocStep(null); setFile(null); focusEnd(); },
     },
     {
       icon: "📋", label: "POC",
-      action: () => {
-        setInput("");
-        setPocStep("choose");
-        setCtxTitle("");
-        setFile(null);
-      },
+      action: () => { setInput(""); setPocStep("choose"); setCtxTitle(""); setFile(null); },
     },
     {
       icon: "🔄", label: "Reconcile",
-      action: () => {
-        setInput("Reconcile the following data or process:\n\n");
-        setCtxTitle("RECONCILE DATA");
-        setPocStep(null);
-        setFile(null);
-        focusEnd();
-      },
+      action: () => { setInput("Reconcile the following data or process:\n\n"); setCtxTitle("RECONCILE DATA"); setPocStep(null); setFile(null); focusEnd(); },
     },
     {
       icon: "📂", label: "Projects",
-      action: () => {
-        setInput("Add a new project using the uploaded Excel file.\n\n");
-        setCtxTitle("ADD A NEW PROJECT");
-        setPocStep(null);
-        setFile(null);
-        focusEnd();
-      },
+      action: () => { setInput("Add a new project using the uploaded Excel file.\n\n"); setCtxTitle("ADD A NEW PROJECT"); setPocStep(null); setFile(null); focusEnd(); },
     },
     {
-      icon: "📝", label: "Miscellaneous",
-      action: () => {
-        setInput("Enter your miscellaneous request here:\n\n");
-        setCtxTitle("MISCELLANEOUS");
-        setPocStep(null);
-        setFile(null);
-        focusEnd();
-      },
+      icon: "📝", label: "Misc",
+      action: () => { setInput("Enter your miscellaneous request here:\n\n"); setCtxTitle("MISCELLANEOUS"); setPocStep(null); setFile(null); focusEnd(); },
     },
   ];
 
   return (
     <>
-      {/* Floating Toggle */}
+      {/* ── Floating toggle button ── */}
       <button onClick={() => setOpen(!open)}
         onMouseEnter={() => setHoverBtn(true)} onMouseLeave={() => setHoverBtn(false)}
         style={{ position: "fixed", bottom: 12, right: 24, width: 56, height: 56, borderRadius: "50%", backgroundColor: C.accentDeep, border: "none", cursor: "pointer", zIndex: 160, boxShadow: "0 4px 16px rgba(0,0,0,0.3)", overflow: "hidden", padding: 0, transform: hoverBtn ? "scale(1.1)" : "scale(1)", transition: "transform 0.2s ease" }}>
         <img src={ROBOT_ICON} alt="Chat" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
       </button>
 
-      {/* Hidden file inputs for POC uploads */}
-      <input ref={pocFileRef} type="file" accept=".xlsx,.xls,.csv" hidden />
-
-      {/* Chat Panel */}
+      {/* ── Chat Panel (fixed 390×380) ── */}
       {open && (
-        <div style={{ position: "fixed", bottom: 76, right: 24, width: CHAT_WIDTH, height: CHAT_HEIGHT, backgroundColor: "#f9fafb", borderRadius: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.2)", zIndex: 150, overflow: "hidden", display: "flex", flexDirection: "column", animation: "fadeIn 0.2s ease" }}>
+        <div style={{ position: "fixed", bottom: 76, right: 24, width: CHAT_W, height: CHAT_H, minWidth: CHAT_W, minHeight: CHAT_H, maxWidth: CHAT_W, maxHeight: CHAT_H, backgroundColor: "#ffffff", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.22)", zIndex: 150, overflow: "hidden", display: "flex", flexDirection: "column", animation: "fadeIn 0.2s ease" }}>
 
-          {/* ── Header / Title Area ── */}
-          <div style={{ ...S.gradientPurple, color: "white", padding: "14px 16px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <div style={{ width: 34, height: 34, borderRadius: "50%", overflow: "hidden", flexShrink: 0, border: "2px solid rgba(255,255,255,0.3)" }}>
-              <img src={ROBOT_ICON} alt="Bot" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
+          {/* ── TITLE BAR ── */}
+          <div style={{ background: `linear-gradient(135deg, ${C.purple1}, ${C.purple2})`, color: "white", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+            <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0, border: "2px solid rgba(255,255,255,0.3)" }}>
+              <img src={ROBOT_ICON} alt="Bot" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>Burnsheet Assistant</div>
-              <div style={{ fontSize: 12, opacity: 0.92, marginTop: 2 }}>
-                Hi! 👋 I'm your Burnsheet Assistant. How can I help you today?
-              </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>Burnsheet Assistant</div>
+              <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2, lineHeight: 1.3 }}>Hi! 👋 I'm your Burnsheet Assistant. How can I help you today?</div>
             </div>
-            <button onClick={() => setOpen(false)} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "white", fontSize: 16, cursor: "pointer", padding: "4px 8px", borderRadius: 6, lineHeight: 1 }}>✕</button>
+            <button onClick={() => setOpen(false)} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "white", fontSize: 15, cursor: "pointer", padding: "3px 7px", borderRadius: 6, lineHeight: 1, flexShrink: 0 }}>✕</button>
           </div>
 
-          {/* ── Chat History (continuous, Copilot-style) ── */}
-          <div ref={scrollRef} style={{ flex: 1, overflow: "auto", padding: "16px 16px 8px", minHeight: 0 }}>
+          {/* ── CHAT HISTORY (continuous Copilot-style stream) ── */}
+          <div ref={scrollRef} style={{ flex: 1, overflow: "auto", padding: "10px 14px 6px", minHeight: 0, backgroundColor: "#f9fafb" }}>
             {msgs.length === 0 && !typing && (
-              <div style={{ textAlign: "center", color: "#9ca3af", fontSize: 13, marginTop: 40 }}>
-                Start a conversation by typing below or clicking an action button.
+              <div style={{ textAlign: "center", color: "#b0b8c4", fontSize: 12, marginTop: 30 }}>
+                Start a conversation below or click an action button.
               </div>
             )}
             {msgs.map((m, i) => (
-              <div key={i} style={{ marginBottom: 2, animation: "slideIn 0.25s ease" }}>
-                {i > 0 && <div style={{ borderBottom: "1px solid #ececec", margin: "10px 0 8px" }} />}
-                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+              <div key={i} style={{ marginBottom: 10, animation: "slideIn 0.2s ease", display: "flex", flexDirection: "column", alignItems: m.sender === "user" ? "flex-end" : "flex-start" }}>
+                {/* Sender label */}
+                <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2, flexDirection: m.sender === "user" ? "row-reverse" : "row" }}>
                   {m.sender === "assistant" && (
-                    <div style={{ width: 18, height: 18, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
+                    <div style={{ width: 16, height: 16, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
                       <img src={ROBOT_ICON} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                     </div>
                   )}
-                  <span style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: m.sender === "user" ? C.accent : "#6b7280" }}>
+                  <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: m.sender === "user" ? C.accent : "#8b95a5" }}>
                     {m.sender === "user" ? "You" : "Assistant"}
                   </span>
                 </div>
-                <div style={{ fontSize: 13, color: "#1f2937", lineHeight: 1.6, whiteSpace: "pre-wrap", wordBreak: "break-word", paddingLeft: m.sender === "assistant" ? 23 : 0 }}>
+                {/* Message text — plain inline, no bubble/card/box */}
+                <div style={{ fontSize: 12.5, color: "#1f2937", lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", maxWidth: "88%", textAlign: m.sender === "user" ? "right" : "left" }}>
                   {m.text}
                 </div>
                 {m.file && (
-                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 4, paddingLeft: m.sender === "assistant" ? 23 : 0 }}>
-                    📎 {m.file}
-                  </div>
+                  <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>📎 {m.file}</div>
                 )}
               </div>
             ))}
             {typing && (
-              <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "10px 0 4px" }}>
-                <div style={{ width: 18, height: 18, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 0 2px" }}>
+                <div style={{ width: 16, height: 16, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
                   <img src={ROBOT_ICON} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                 </div>
-                <div style={{ display: "flex", gap: 4 }}>
-                  {[0, 1, 2].map(i => (
-                    <div key={i} style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#9ca3af", animation: `bounce 1.4s infinite ${i * 0.2}s` }} />
+                <div style={{ display: "flex", gap: 3 }}>
+                  {[0, 1, 2].map(j => (
+                    <div key={j} style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#9ca3af", animation: `bounce 1.4s infinite ${j * 0.2}s` }} />
                   ))}
                 </div>
               </div>
             )}
           </div>
 
-          {/* ── POC Sub-choices (inline, not modal, not card) ── */}
+          {/* ── POC inline choices ── */}
           {pocStep === "choose" && (
-            <div style={{ padding: "8px 16px", borderTop: `1px solid #ececec`, display: "flex", flexDirection: "column", gap: 6, backgroundColor: "#f9fafb" }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#6b7280" }}>Select an option:</div>
+            <div style={{ padding: "6px 14px 4px", borderTop: "1px solid #ececec", display: "flex", flexDirection: "column", gap: 5, backgroundColor: "#fff", flexShrink: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280" }}>Select an option:</div>
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => {
-                  const inp = document.createElement("input");
-                  inp.type = "file"; inp.accept = ".xlsx,.xls,.csv";
-                  inp.onchange = (ev) => {
-                    const f = ev.target.files[0];
-                    if (!f) return;
-                    setFile(f); setPocStep(null);
-                    setCtxTitle("CREATE A NEW POC");
-                    setInput("Create a new POC using the uploaded Excel file.\n\n");
-                    focusEnd();
-                  };
-                  inp.click();
-                }}
-                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${C.accent}`, backgroundColor: "white", color: C.accent, fontSize: 14, fontWeight: 700, cursor: "pointer", transition: "all 0.15s ease" }}
-                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eef1fd"; }}
-                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = "white"; }}>
-                  📋 New POC
-                </button>
-                <button onClick={() => {
-                  const inp = document.createElement("input");
-                  inp.type = "file"; inp.accept = ".xlsx,.xls,.csv";
-                  inp.onchange = (ev) => {
-                    const f = ev.target.files[0];
-                    if (!f) return;
-                    setFile(f); setPocStep(null);
-                    setCtxTitle("ADD A NEW RESOURCE");
-                    setInput("Add a new resource using the uploaded Excel file.\n\n");
-                    focusEnd();
-                  };
-                  inp.click();
-                }}
-                  style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${C.accent}`, backgroundColor: "white", color: C.accent, fontSize: 14, fontWeight: 700, cursor: "pointer", transition: "all 0.15s ease" }}
-                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eef1fd"; }}
-                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = "white"; }}>
-                  👤 New Resource
-                </button>
+                {[{ label: "📋 New POC", type: "poc", title: "CREATE A NEW POC", prompt: "Create a new POC using the uploaded Excel file.\n\n" },
+                  { label: "👤 New Resource", type: "res", title: "ADD A NEW RESOURCE", prompt: "Add a new resource using the uploaded Excel file.\n\n" }
+                ].map(opt => (
+                  <button key={opt.type} onClick={() => {
+                    const inp = document.createElement("input");
+                    inp.type = "file"; inp.accept = ".xlsx,.xls,.csv";
+                    inp.onchange = (ev) => {
+                      const f = ev.target.files[0]; if (!f) return;
+                      setFile(f); setPocStep(null); setCtxTitle(opt.title); setInput(opt.prompt); focusEnd();
+                    };
+                    inp.click();
+                  }}
+                    style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1.5px solid ${C.accent}`, backgroundColor: "white", color: C.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.15s" }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eef1fd"; }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "white"; }}>
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
           )}
 
-          {/* ── Input Area (fixed 56px min height, auto-expand, no scrollbar) ── */}
-          <div style={{ backgroundColor: "#ffffff", padding: "10px 12px 6px", borderTop: `1px solid #ececec`, flexShrink: 0 }}>
-            {/* Attached file badge */}
+          {/* ── INPUT AREA (56px height) ── */}
+          <div style={{ backgroundColor: "#fff", padding: "6px 10px 4px", borderTop: "1px solid #ececec", flexShrink: 0 }}>
+            {/* File badge */}
             {file && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6, fontSize: 11, color: "#6b7280", backgroundColor: "#f0f4ff", borderRadius: 6, padding: "4px 8px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 4, fontSize: 10, color: "#6b7280", backgroundColor: "#f0f4ff", borderRadius: 5, padding: "3px 7px" }}>
                 📎 {file.name}
-                <button onClick={() => setFile(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#ef4444", fontWeight: 700, lineHeight: 1 }}>×</button>
+                <button onClick={() => setFile(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, color: "#ef4444", fontWeight: 700, lineHeight: 1 }}>×</button>
               </div>
             )}
             {/* Context title */}
-            {ctxTitle && <div style={{ fontSize: 11, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 4 }}>{ctxTitle}</div>}
-            {/* Input box with + and send */}
-            <div style={{ display: "flex", alignItems: "flex-end", backgroundColor: "#f9fafb", border: `1.5px solid ${C.border}`, borderRadius: 12, padding: "6px 8px", minHeight: 112, transition: "border-color 0.15s ease" }}
+            {ctxTitle && <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 3 }}>{ctxTitle}</div>}
+            {/* Input row */}
+            <div style={{ display: "flex", alignItems: "flex-end", backgroundColor: "#f4f6fa", border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "4px 6px", height: 56, minHeight: 56, transition: "border-color 0.15s" }}
               onFocus={e => e.currentTarget.style.borderColor = C.accent}
               onBlur={e => e.currentTarget.style.borderColor = C.border}>
-              {/* + file attach */}
+              {/* + attach */}
               <button onClick={() => fileRef.current?.click()}
-                style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: "#9ca3af", padding: "4px 4px", flexShrink: 0, lineHeight: 1 }}
+                style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#9ca3af", padding: "2px 3px", flexShrink: 0, lineHeight: 1 }}
                 title="Attach file">+</button>
               <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => { if (e.target.files[0]) { setFile(e.target.files[0]); e.target.value = ""; } }} />
               {/* Textarea */}
@@ -1132,57 +1074,55 @@ function Chatbot() {
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Type a message..."
-                rows={3}
+                rows={1}
                 style={{
-                  flex: 1, border: "none", outline: "none", fontSize: 13, resize: "none",
-                  overflow: "hidden", lineHeight: 1.5, padding: "6px 6px", fontFamily: "inherit",
-                  backgroundColor: "transparent", minHeight: 72,
+                  flex: 1, border: "none", outline: "none", fontSize: 12.5, resize: "none",
+                  overflow: "hidden", lineHeight: 1.45, padding: "6px 4px", fontFamily: "inherit",
+                  backgroundColor: "transparent", minHeight: 36, maxHeight: 120,
                 }}
               />
-              {/* Send button */}
+              {/* Send */}
               <button onClick={send}
-                style={{ background: input.trim() ? C.accent : "transparent", border: "none", fontSize: 16, cursor: input.trim() ? "pointer" : "default", color: input.trim() ? "white" : "#d1d5db", padding: "6px 8px", flexShrink: 0, borderRadius: 8, lineHeight: 1, transition: "all 0.15s ease" }}
+                style={{ background: input.trim() ? C.accent : "transparent", border: "none", fontSize: 14, cursor: input.trim() ? "pointer" : "default", color: input.trim() ? "white" : "#d1d5db", padding: "5px 7px", flexShrink: 0, borderRadius: 7, lineHeight: 1, transition: "all 0.15s" }}
                 title="Send">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
               </button>
             </div>
           </div>
 
-          {/* ── Action Button Bar (horizontal scroll, left/right arrows) ── */}
-          <div style={{ padding: "14px 8px 16px", backgroundColor: "#ffffff", display: "flex", alignItems: "flex-start", gap: 6, flexShrink: 0, borderTop: `1px solid #ececec`, position: "relative", zIndex: 2 }}>
+          {/* ── ACTION BUTTON BAR (horizontal scroll with arrows) ── */}
+          <div style={{ padding: "6px 6px 8px", backgroundColor: "#fff", display: "flex", alignItems: "center", gap: 4, flexShrink: 0, borderTop: "1px solid #ececec" }}>
             {/* Left arrow */}
             <button onClick={() => scrollAction("left")}
-              style={{ width: 28, height: 28, minWidth: 28, marginTop: 12, border: `1px solid ${C.border}`, borderRadius: 8, background: "white", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#6b7280" }}>◀</button>
-            {/* Scrollable button container — single div with ref */}
-            <div
-              ref={actionBarRef}
-              className="chatbot-action-scroll"
-              style={{ flex: 1, display: "flex", gap: 8, overflowX: "auto", scrollBehavior: "smooth", scrollbarWidth: "none", msOverflowStyle: "none", alignItems: "center", justifyContent: "center" }}>
+              style={{ width: 24, height: 24, minWidth: 24, border: `1px solid ${C.border}`, borderRadius: 6, background: "white", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#6b7280" }}>◀</button>
+            {/* Scrollable buttons */}
+            <div ref={actionBarRef} className="chatbot-action-scroll"
+              style={{ flex: 1, display: "flex", gap: 6, overflowX: "auto", scrollBehavior: "smooth", alignItems: "center" }}>
               {actionButtons.map((btn, idx) => {
                 const isActive = activeActionIdx === idx;
                 return (
-                <div key={btn.label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                  <button onClick={() => { setActiveActionIdx(idx); btn.action(); }}
-                    style={{
-                      width: 52, height: 52, minWidth: 52, minHeight: 52, borderRadius: 12,
-                      border: `1.5px solid ${isActive ? C.accent : C.border}`,
-                      backgroundColor: isActive ? "#eef1fd" : "white", cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      transition: "all 0.15s ease", flexShrink: 0,
-                      boxShadow: isActive ? `0 0 0 2px ${C.accent}44` : "none",
-                    }}
-                    onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.backgroundColor = "#f0f4ff"; e.currentTarget.style.boxShadow = `0 2px 8px rgba(0,0,0,0.1)`; } }}
-                    onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.backgroundColor = "white"; e.currentTarget.style.boxShadow = "none"; } }}>
-                    <span style={{ fontSize: 20, lineHeight: 1 }}>{btn.icon}</span>
-                  </button>
-                  <span style={{ fontSize: 10, fontWeight: 600, color: isActive ? C.accent : "#4b5563", lineHeight: 1, whiteSpace: "nowrap" }}>{btn.label}</span>
-                </div>
+                  <div key={btn.label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, flexShrink: 0 }}>
+                    <button onClick={() => { setActiveActionIdx(idx); btn.action(); }}
+                      style={{
+                        width: 52, height: 52, minWidth: 52, minHeight: 52, borderRadius: 12,
+                        border: `1.5px solid ${isActive ? C.accent : C.border}`,
+                        backgroundColor: isActive ? "#eef1fd" : "white", cursor: "pointer",
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        transition: "all 0.15s", flexShrink: 0,
+                        boxShadow: isActive ? `0 0 0 2px ${C.accent}44` : "none",
+                      }}
+                      onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.backgroundColor = "#f0f4ff"; } }}
+                      onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.backgroundColor = "white"; } }}>
+                      <span style={{ fontSize: 20, lineHeight: 1 }}>{btn.icon}</span>
+                    </button>
+                    <span style={{ fontSize: 9, fontWeight: 600, color: isActive ? C.accent : "#4b5563", lineHeight: 1, whiteSpace: "nowrap" }}>{btn.label}</span>
+                  </div>
                 );
               })}
             </div>
             {/* Right arrow */}
             <button onClick={() => scrollAction("right")}
-              style={{ width: 28, height: 28, minWidth: 28, marginTop: 12, border: `1px solid ${C.border}`, borderRadius: 8, background: "white", cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#6b7280" }}>▶</button>
+              style={{ width: 24, height: 24, minWidth: 24, border: `1px solid ${C.border}`, borderRadius: 6, background: "white", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#6b7280" }}>▶</button>
           </div>
         </div>
       )}
@@ -1259,7 +1199,7 @@ function FilterBar() {
             💾 Save
           </button>
         )}
-        <button onClick={() => dispatch({ type: "TOAST", payload: { type: "info", message: "Export started..." } })}
+        <button onClick={async () => { dispatch({ type: "TOAST", payload: { type: "info", message: "Export started..." } }); try { await exportBurnsheetExcel(state.allData, state.region); dispatch({ type: "TOAST", payload: { type: "success", message: "Excel exported!" } }); } catch(e) { dispatch({ type: "TOAST", payload: { type: "error", message: "Export failed: " + e.message } }); } }}
           style={{ padding: "7px 14px", borderRadius: 8, border: "none", fontSize: 13, fontWeight: 600, color: "white", backgroundColor: "#f59e0b", cursor: "pointer" }}>
           📊 Export
         </button>
@@ -1488,7 +1428,7 @@ function CombinedDashboard() {
           </button>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => dispatch({ type: "TOAST", payload: { type: "info", message: "Export started..." } })}
+          <button onClick={async () => { dispatch({ type: "TOAST", payload: { type: "info", message: "Export started..." } }); try { await exportBurnsheetExcel(state.allData, state.region); dispatch({ type: "TOAST", payload: { type: "success", message: "Excel exported!" } }); } catch(e) { dispatch({ type: "TOAST", payload: { type: "error", message: "Export failed: " + e.message } }); } }}
             style={{ padding: "8px 16px", borderRadius: 8, border: "none", color: "white", fontWeight: 600, fontSize: 13, cursor: "pointer", backgroundColor: "#f59e0b" }}>
             📊 Export
           </button>
