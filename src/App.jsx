@@ -818,7 +818,7 @@ function MultiSelectCell({ value, row, colOptions, dispatch }) {
 
 /* ═══════════════════ CHATBOT ═══════════════════ */
 function Chatbot() {
-  const { state, dispatch } = useContext(AppContext);
+  const { state } = useContext(AppContext);
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
@@ -832,57 +832,38 @@ function Chatbot() {
   const fileRef = useRef(null);
   const scrollRef = useRef(null);
   const actionBarRef = useRef(null);
-  const cardRef = useRef(null);
 
-  const CHAT_W = 390;
-  const CHAT_H = 380;
+  const CHAT_W = 390, CHAT_H = 380;
 
   /* Scroll chat to bottom */
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [msgs, typing]);
+  useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [msgs, typing]);
 
-  /* Auto-resize the input card to fit content, min 56px */
-  const resizeCard = () => {
+  /* Auto-resize textarea to fit content — no scrollbars */
+  useEffect(() => {
     const ta = inputRef.current;
     if (!ta) return;
     ta.style.height = "0";
-    const sh = ta.scrollHeight;
-    ta.style.height = sh + "px";
-    /* Also resize the card container */
-    if (cardRef.current) {
-      /* Title ~18px + padding 16px + textarea scrollHeight + buttons row if present */
-      const titleEl = cardRef.current.querySelector("[data-ctx-title]");
-      const titleH = titleEl ? titleEl.offsetHeight + 4 : 0;
-      const fileEl = cardRef.current.querySelector("[data-file-badge]");
-      const fileH = fileEl ? fileEl.offsetHeight + 4 : 0;
-      const inner = sh + titleH + fileH + 16; /* 16 = vertical padding */
-      cardRef.current.style.height = Math.max(56, inner) + "px";
-    }
-  };
+    ta.style.height = ta.scrollHeight + "px";
+  }, [input]);
 
-  useEffect(() => { resizeCard(); }, [input, ctxTitle, file]);
-
-  /* Focus + cursor at end helper */
+  /* Focus + cursor at end */
   const focusEnd = () => {
     setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-        const len = inputRef.current.value.length;
-        inputRef.current.setSelectionRange(len, len);
-        resizeCard();
-      }
-    }, 30);
+      const ta = inputRef.current;
+      if (!ta) return;
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+      ta.style.height = "0";
+      ta.style.height = ta.scrollHeight + "px";
+    }, 40);
   };
 
-  /* Respond logic */
+  /* ── Respond logic ── */
   const respond = (text) => {
     const lower = text.toLowerCase().trim();
     if (lower === "/clear") { setMsgs([]); setInput(""); setFile(null); setPocStep(null); setCtxTitle(""); setActiveActionIdx(-1); return; }
-
     setMsgs(prev => [...prev, { sender: "user", text, file: file ? file.name : null }]);
-    setFile(null);
-    setTyping(true);
+    setFile(null); setTyping(true);
     setTimeout(() => {
       let reply = "";
       if (/^(hello|hi|hey)\b/.test(lower)) reply = "Hello! 👋 How can I help you with the burnsheet today?";
@@ -890,170 +871,111 @@ function Chatbot() {
       else if (/pdf/.test(lower)) reply = "To generate a PDF, click the 📄 PDF button. It will create a report based on the current view.";
       else if (/filter/.test(lower)) reply = "You can filter data by:\n• POC (dropdown in filter bar)\n• Classification (dropdown)\n• Region (India/USA tabs)\n\nFilters are applied in real-time.";
       else if (/reconcile data/.test(lower)) reply = "Reconciliation process:\n1. The system compares actual vs projected rates\n2. Identifies discrepancies in timesheets\n3. Highlights variance exceeding thresholds\n4. Generates a reconciliation report";
-      else if (/reconcile/.test(lower)) reply = "The reconciliation process compares current data with the baseline. Click 🔄 Reconcile (amber button) to start. Note: It's only enabled when changes are detected.";
+      else if (/reconcile/.test(lower)) reply = "The reconciliation process compares current data with the baseline. Click 🔄 Reconcile (amber button) to start.";
       else if (/save/.test(lower)) reply = "Click 💾 Save (green button) to save your changes. This is available for Admin users only.";
       else if (/skill/.test(lower)) reply = "Skills can be edited in the Resource Burn view. Click the + button in the Skill Set column to add skills, or × to remove them.";
-      else if (/dashboard/.test(lower)) reply = "The Analytics Dashboard shows:\n• Monthly Burn Comparison\n• Missing Classifications\n• Classification Distribution\n• Tower Performance\n\nSwitch between views using the tab buttons.";
-      else if (/burn/.test(lower)) reply = "The burn indicator shows resource utilization:\n🟢 Green fill = achieved hours\n🔴 Red track = underburn\n🟡 Amber track = overburn\n\nHover over any burn bar for details.";
-      else if (/how many|count|total/.test(lower)) reply = `Total rows in dataset: ${state.allData.length}\n• India: ${state.allData.filter(r => r.country === "India").length}\n• USA: ${state.allData.filter(r => r.country === "USA").length}`;
-      else if (/premium/.test(lower)) reply = `Premium resources: ${state.allData.filter(r => r.classification === "Premium").length} total\n• India: ${state.allData.filter(r => r.classification === "Premium" && r.country === "India").length}\n• USA: ${state.allData.filter(r => r.classification === "Premium" && r.country === "USA").length}`;
-      else if (/expert/.test(lower)) reply = `Expert resources: ${state.allData.filter(r => r.classification === "Expert").length} total\n• India: ${state.allData.filter(r => r.classification === "Expert" && r.country === "India").length}\n• USA: ${state.allData.filter(r => r.classification === "Expert" && r.country === "USA").length}`;
+      else if (/dashboard/.test(lower)) reply = "The Analytics Dashboard shows:\n• Monthly Burn Comparison\n• Missing Classifications\n• Classification Distribution\n• Tower Performance";
+      else if (/burn/.test(lower)) reply = "The burn indicator shows resource utilization:\n🟢 Green = achieved hours\n🔴 Red = underburn\n🟡 Amber = overburn\n\nHover over any burn bar for details.";
+      else if (/how many|count|total/.test(lower)) reply = `Total rows: ${state.allData.length}\n• India: ${state.allData.filter(r => r.country === "India").length}\n• USA: ${state.allData.filter(r => r.country === "USA").length}`;
+      else if (/premium/.test(lower)) reply = `Premium resources: ${state.allData.filter(r => r.classification === "Premium").length} total`;
+      else if (/expert/.test(lower)) reply = `Expert resources: ${state.allData.filter(r => r.classification === "Expert").length} total`;
       else if (/dollar|change dollar/.test(lower)) reply = "To change the dollar rate:\n1. Click the 💲 $ button below\n2. Enter the new rate\n3. Click 🔄 Reconcile to apply\n\nCurrent rate: $" + state.dollarRate;
-      else if (/create.*poc.*excel|new poc.*excel|uploaded excel.*poc/i.test(lower)) reply = "Processing your uploaded Excel file for new POC creation. The system will parse all POC attributes from the file and add the new POC to the dataset.";
-      else if (/add.*resource.*excel|new resource.*excel|uploaded excel.*resource/i.test(lower)) reply = "Processing your uploaded Excel file for new resource addition. The resource details will be extracted from the file and added to the system.";
-      else if (/create poc|new poc/.test(lower)) reply = "To create a new POC:\n1. Click the 📋 POC button below\n2. Select 'New POC'\n3. Upload an Excel file with the resource details\n4. The system will process and add the POC";
-      else if (/add resource|new resource/.test(lower)) reply = "To add a new resource:\n1. Click the 📋 POC button below\n2. Select 'New Resource'\n3. Upload an Excel file with the resource data\n4. The system will validate and add the resource";
-      else if (/add.*project.*excel|new project.*excel|uploaded excel.*project/i.test(lower)) reply = "Processing your uploaded Excel file for new project creation. The project details will be parsed and added.";
+      else if (/create.*poc.*excel|new poc.*excel|uploaded excel.*poc/i.test(lower)) reply = "Processing your uploaded Excel file for new POC creation. The system will parse all POC attributes from the file.";
+      else if (/add.*resource.*excel|new resource.*excel|uploaded excel.*resource/i.test(lower)) reply = "Processing your uploaded Excel file for new resource addition. The resource details will be extracted.";
+      else if (/create poc|new poc/.test(lower)) reply = "To create a new POC:\n1. Click the 📋 POC button below\n2. Select 'New POC'\n3. Upload an Excel file\n4. The system will process and add the POC";
+      else if (/add resource|new resource/.test(lower)) reply = "To add a new resource:\n1. Click the 📋 POC button below\n2. Select 'New Resource'\n3. Upload an Excel file\n4. The system will validate and add the resource";
+      else if (/add.*project.*excel|new project.*excel|uploaded excel.*project/i.test(lower)) reply = "Processing your uploaded Excel file for new project creation.";
       else if (/project/.test(lower)) reply = "To add a new project, click the Projects button below and upload an Excel file with the project details.";
       else if (/miscellaneous/.test(lower)) reply = "This is a general-purpose input area. You can type any miscellaneous request or query here.";
       else if (/thank/.test(lower)) reply = "You're welcome! 😊 Let me know if you need anything else.";
-      else reply = "I can help you with:\n• 💲 Dollar rate changes\n• 📋 POC / Resource management\n• 🔄 Data reconciliation\n• 📂 Project management\n• 📊 Export & PDF generation\n• 🔍 Filtering & searching\n• 📈 Burn analysis\n\nWhat would you like to know?";
-
+      else reply = "I can help you with:\n• 💲 Dollar rate changes\n• 📋 POC / Resource management\n• 🔄 Data reconciliation\n• 📂 Project management\n• 📊 Export & PDF generation\n•  Burn analysis\n\nWhat would you like to know?";
       setMsgs(prev => [...prev, { sender: "assistant", text: reply }]);
       setTyping(false);
     }, 800);
   };
 
-  const send = () => {
-    const text = input.trim();
-    if (!text) return;
-    setInput("");
-    setCtxTitle("");
-    setPocStep(null);
-    respond(text);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
-  };
+  const send = () => { const t = input.trim(); if (!t) return; setInput(""); setCtxTitle(""); setPocStep(null); respond(t); };
+  const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
 
   /* Action bar scroll */
   const scrollAction = (dir) => {
-    const total = actionButtons.length;
-    if (total === 0) return;
-    let newIdx;
-    if (dir === "right") { newIdx = activeActionIdx < total - 1 ? activeActionIdx + 1 : 0; }
-    else { newIdx = activeActionIdx > 0 ? activeActionIdx - 1 : total - 1; }
-    setActiveActionIdx(newIdx);
-    actionButtons[newIdx].action();
-    if (actionBarRef.current) {
-      const ch = actionBarRef.current.children;
-      if (ch[newIdx]) ch[newIdx].scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-    }
+    const n = actionButtons.length; if (!n) return;
+    const ni = dir === "right" ? (activeActionIdx < n - 1 ? activeActionIdx + 1 : 0) : (activeActionIdx > 0 ? activeActionIdx - 1 : n - 1);
+    setActiveActionIdx(ni); actionButtons[ni].action();
+    if (actionBarRef.current?.children[ni]) actionBarRef.current.children[ni].scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
   };
 
-  /* Action button definitions */
+  /* Action buttons */
   const actionButtons = [
-    {
-      icon: "💲", label: "$",
-      action: () => { setInput("Change the dollar value from 86 to "); setCtxTitle("CHANGE DOLLAR VALUE"); setPocStep(null); setFile(null); focusEnd(); },
-    },
-    {
-      icon: "📋", label: "POC",
-      action: () => { setInput(""); setPocStep("choose"); setCtxTitle(""); setFile(null); },
-    },
-    {
-      icon: "🔄", label: "Reconcile",
-      action: () => { setInput("Reconcile the following data or process:\n"); setCtxTitle("RECONCILE DATA"); setPocStep(null); setFile(null); focusEnd(); },
-    },
-    {
-      icon: "📂", label: "Projects",
-      action: () => { setInput("Add a new project using the uploaded Excel file.\n"); setCtxTitle("ADD A NEW PROJECT"); setPocStep(null); setFile(null); focusEnd(); },
-    },
-    {
-      icon: "📝", label: "Misc",
-      action: () => { setInput("Enter your miscellaneous request here:\n"); setCtxTitle("MISCELLANEOUS"); setPocStep(null); setFile(null); focusEnd(); },
-    },
+    { icon: "💲", label: "$", action: () => { setInput("Change the dollar value from 86 to "); setCtxTitle("CHANGE DOLLAR VALUE"); setPocStep(null); setFile(null); focusEnd(); } },
+    { icon: "📋", label: "POC", action: () => { setInput(""); setPocStep("choose"); setCtxTitle(""); setFile(null); } },
+    { icon: "🔄", label: "Reconcile", action: () => { setInput("Reconcile the following data or process:\n"); setCtxTitle("RECONCILE DATA"); setPocStep(null); setFile(null); focusEnd(); } },
+    { icon: "📂", label: "Projects", action: () => { setInput("Add a new project using the uploaded Excel file.\n"); setCtxTitle("ADD A NEW PROJECT"); setPocStep(null); setFile(null); focusEnd(); } },
+    { icon: "📝", label: "Misc", action: () => { setInput("Enter your miscellaneous request here:\n"); setCtxTitle("MISCELLANEOUS"); setPocStep(null); setFile(null); focusEnd(); } },
   ];
 
+  /* ── Render ── */
   return (
     <>
-      {/* ── Floating toggle button ── */}
-      <button onClick={() => setOpen(!open)}
-        onMouseEnter={() => setHoverBtn(true)} onMouseLeave={() => setHoverBtn(false)}
+      {/* Floating toggle */}
+      <button onClick={() => setOpen(!open)} onMouseEnter={() => setHoverBtn(true)} onMouseLeave={() => setHoverBtn(false)}
         style={{ position: "fixed", bottom: 12, right: 24, width: 56, height: 56, borderRadius: "50%", backgroundColor: C.accentDeep, border: "none", cursor: "pointer", zIndex: 160, boxShadow: "0 4px 16px rgba(0,0,0,0.3)", overflow: "hidden", padding: 0, transform: hoverBtn ? "scale(1.1)" : "scale(1)", transition: "transform 0.2s ease" }}>
         <img src={ROBOT_ICON} alt="Chat" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
       </button>
 
-      {/* ── Chat Panel (fixed 390×380) ── */}
+      {/* Chat Panel — fixed 390×380 */}
       {open && (
-        <div style={{ position: "fixed", bottom: 76, right: 24, width: CHAT_W, height: CHAT_H, minWidth: CHAT_W, minHeight: CHAT_H, maxWidth: CHAT_W, maxHeight: CHAT_H, backgroundColor: "#ffffff", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.22)", zIndex: 150, overflow: "hidden", display: "flex", flexDirection: "column", animation: "fadeIn 0.2s ease" }}>
+        <div style={{ position: "fixed", bottom: 76, right: 24, width: CHAT_W, height: CHAT_H, minWidth: CHAT_W, minHeight: CHAT_H, maxWidth: CHAT_W, maxHeight: CHAT_H, backgroundColor: "#fff", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.22)", zIndex: 150, overflow: "hidden", display: "flex", flexDirection: "column", animation: "fadeIn 0.2s ease" }}>
 
-          {/* ── TITLE BAR ── */}
-          <div style={{ background: `linear-gradient(135deg, ${C.purple1}, ${C.purple2})`, color: "white", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {/* ── Title bar ── */}
+          <div style={{ background: `linear-gradient(135deg, ${C.purple1}, ${C.purple2})`, color: "#fff", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
             <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0, border: "2px solid rgba(255,255,255,0.3)" }}>
               <img src={ROBOT_ICON} alt="Bot" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>Burnsheet Assistant</div>
-              <div style={{ fontSize: 11, opacity: 0.9, marginTop: 2, lineHeight: 1.3 }}>Hi! 👋 I'm your Burnsheet Assistant. How can I help you today?</div>
+              <div style={{ fontSize: 14, opacity: 0.95, marginTop: 2, lineHeight: 1.3 }}>Hi! 👋 How can I help you today?</div>
             </div>
-            <button onClick={() => setOpen(false)} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "white", fontSize: 15, cursor: "pointer", padding: "3px 7px", borderRadius: 6, lineHeight: 1, flexShrink: 0 }}>✕</button>
+            <button onClick={() => setOpen(false)} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: 15, cursor: "pointer", padding: "3px 7px", borderRadius: 6, lineHeight: 1, flexShrink: 0 }}>✕</button>
           </div>
 
-          {/* ── CHAT HISTORY (continuous Copilot-style stream) ── */}
+          {/* ── Chat history (Copilot-style continuous stream) ── */}
           <div ref={scrollRef} style={{ flex: 1, overflow: "auto", padding: "10px 14px 6px", minHeight: 0, backgroundColor: "#f9fafb" }}>
             {msgs.length === 0 && !typing && (
-              <div style={{ textAlign: "center", color: "#b0b8c4", fontSize: 12, marginTop: 30 }}>
-                Start a conversation below or click an action button.
-              </div>
+              <div style={{ textAlign: "center", color: "#b0b8c4", fontSize: 12, marginTop: 30 }}>Start a conversation below or click an action button.</div>
             )}
             {msgs.map((m, i) => (
               <div key={i} style={{ marginBottom: 10, animation: "slideIn 0.2s ease", display: "flex", flexDirection: "column", alignItems: m.sender === "user" ? "flex-end" : "flex-start" }}>
-                {/* Sender label */}
                 <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2, flexDirection: m.sender === "user" ? "row-reverse" : "row" }}>
-                  {m.sender === "assistant" && (
-                    <div style={{ width: 16, height: 16, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
-                      <img src={ROBOT_ICON} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                    </div>
-                  )}
-                  <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: m.sender === "user" ? C.accent : "#8b95a5" }}>
-                    {m.sender === "user" ? "You" : "Assistant"}
-                  </span>
+                  {m.sender === "assistant" && <div style={{ width: 16, height: 16, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src={ROBOT_ICON} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>}
+                  <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: m.sender === "user" ? C.accent : "#8b95a5" }}>{m.sender === "user" ? "You" : "Assistant"}</span>
                 </div>
-                {/* Message text — plain inline, no bubble/card/box */}
-                <div style={{ fontSize: 12.5, color: "#1f2937", lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", maxWidth: "88%", textAlign: m.sender === "user" ? "right" : "left" }}>
-                  {m.text}
-                </div>
-                {m.file && (
-                  <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>📎 {m.file}</div>
-                )}
+                <div style={{ fontSize: 12.5, color: "#1f2937", lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", maxWidth: "88%", textAlign: m.sender === "user" ? "right" : "left" }}>{m.text}</div>
+                {m.file && <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>📎 {m.file}</div>}
               </div>
             ))}
             {typing && (
               <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 0 2px" }}>
-                <div style={{ width: 16, height: 16, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}>
-                  <img src={ROBOT_ICON} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                </div>
-                <div style={{ display: "flex", gap: 3 }}>
-                  {[0, 1, 2].map(j => (
-                    <div key={j} style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#9ca3af", animation: `bounce 1.4s infinite ${j * 0.2}s` }} />
-                  ))}
-                </div>
+                <div style={{ width: 16, height: 16, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src={ROBOT_ICON} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+                <div style={{ display: "flex", gap: 3 }}>{[0, 1, 2].map(j => <div key={j} style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#9ca3af", animation: `bounce 1.4s infinite ${j * 0.2}s` }} />)}</div>
               </div>
             )}
           </div>
 
           {/* ── POC inline choices ── */}
           {pocStep === "choose" && (
-            <div style={{ padding: "6px 14px 4px", borderTop: "1px solid #ececec", display: "flex", flexDirection: "column", gap: 5, backgroundColor: "#fff", flexShrink: 0 }}>
+            <div style={{ padding: "6px 14px 6px", borderTop: "1px solid #ececec", display: "flex", flexDirection: "column", gap: 5, backgroundColor: "#fff", flexShrink: 0 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280" }}>Select an option:</div>
               <div style={{ display: "flex", gap: 8 }}>
-                {[{ label: "📋 New POC", type: "poc", title: "CREATE A NEW POC", prompt: "Create a new POC using the uploaded Excel file.\n" },
-                  { label: "👤 New Resource", type: "res", title: "ADD A NEW RESOURCE", prompt: "Add a new resource using the uploaded Excel file.\n" }
-                ].map(opt => (
-                  <button key={opt.type} onClick={() => {
-                    const inp = document.createElement("input");
-                    inp.type = "file"; inp.accept = ".xlsx,.xls,.csv";
-                    inp.onchange = (ev) => {
-                      const f = ev.target.files[0]; if (!f) return;
-                      setFile(f); setPocStep(null); setCtxTitle(opt.title); setInput(opt.prompt); focusEnd();
-                    };
+                {[{ label: "📋 New POC", title: "CREATE A NEW POC", prompt: "Create a new POC using the uploaded Excel file.\n" },
+                  { label: "👤 New Resource", title: "ADD A NEW RESOURCE", prompt: "Add a new resource using the uploaded Excel file.\n" }
+                ].map((opt, oi) => (
+                  <button key={oi} onClick={() => {
+                    const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".xlsx,.xls,.csv";
+                    inp.onchange = (ev) => { const f = ev.target.files[0]; if (!f) return; setFile(f); setPocStep(null); setCtxTitle(opt.title); setInput(opt.prompt); focusEnd(); };
                     inp.click();
-                  }}
-                    style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1.5px solid ${C.accent}`, backgroundColor: "white", color: C.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", transition: "all 0.15s" }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eef1fd"; }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "white"; }}>
+                  }} style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1.5px solid ${C.accent}`, backgroundColor: "white", color: C.accent, fontSize: 14, fontWeight: 700, cursor: "pointer", transition: "all 0.15s" }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eef1fd"; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = "white"; }}>
                     {opt.label}
                   </button>
                 ))}
@@ -1061,85 +983,53 @@ function Chatbot() {
             </div>
           )}
 
-          {/* ── INPUT CARD AREA (min 56px, auto-expands to fit content) ── */}
+          {/* ── Input area (min 56px card, auto-expands) ── */}
           <div style={{ backgroundColor: "#fff", padding: "6px 10px 4px", borderTop: "1px solid #ececec", flexShrink: 0 }}>
-            <div ref={cardRef}
-              style={{ display: "flex", flexDirection: "column", backgroundColor: "#f4f6fa", border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "6px 8px", minHeight: 56, transition: "border-color 0.15s", overflow: "hidden" }}
-              onFocus={e => { if (cardRef.current) cardRef.current.style.borderColor = C.accent; }}
-              onBlur={e => { if (cardRef.current) cardRef.current.style.borderColor = C.border; }}>
-              {/* Context title inside the card */}
-              {ctxTitle && (
-                <div data-ctx-title style={{ fontSize: 10, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2, lineHeight: 1.2 }}>{ctxTitle}</div>
-              )}
-              {/* File badge inside the card */}
+            <div style={{ backgroundColor: "#f4f6fa", border: `1.5px solid ${C.border}`, borderRadius: 10, padding: "5px 8px", minHeight: 56, display: "flex", flexDirection: "column", justifyContent: "center", transition: "border-color 0.15s" }}
+              onFocus={e => { e.currentTarget.style.borderColor = C.accent; }} onBlur={e => { e.currentTarget.style.borderColor = C.border; }}>
+              {/* Context title */}
+              {ctxTitle && <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 2, lineHeight: 1.2, flexShrink: 0 }}>{ctxTitle}</div>}
+              {/* File badge */}
               {file && (
-                <div data-file-badge style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3, fontSize: 10, color: "#6b7280" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2, fontSize: 10, color: "#6b7280", flexShrink: 0 }}>
                   📎 {file.name}
                   <button onClick={() => setFile(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 11, color: "#ef4444", fontWeight: 700, lineHeight: 1, padding: 0 }}>×</button>
                 </div>
               )}
-              {/* Row: + attach | textarea | send */}
-              <div style={{ display: "flex", alignItems: "flex-end", flex: 1, gap: 2 }}>
-                {/* + attach */}
-                <button onClick={() => fileRef.current?.click()}
-                  style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#9ca3af", padding: "2px 3px", flexShrink: 0, lineHeight: 1, alignSelf: "flex-end" }}
-                  title="Attach file">+</button>
+              {/* Input row: + | textarea | send */}
+              <div style={{ display: "flex", alignItems: "flex-end", gap: 2 }}>
+                <button onClick={() => fileRef.current?.click()} style={{ background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#9ca3af", padding: "2px 3px", flexShrink: 0, lineHeight: 1 }} title="Attach file">+</button>
                 <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={e => { if (e.target.files[0]) { setFile(e.target.files[0]); e.target.value = ""; } }} />
-                {/* Textarea - auto-expands, no scrollbar */}
-                <textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Type a message..."
-                  rows={1}
-                  style={{
-                    flex: 1, border: "none", outline: "none", fontSize: 12.5, resize: "none",
-                    overflow: "hidden", lineHeight: 1.45, padding: "4px 2px", fontFamily: "inherit",
-                    backgroundColor: "transparent", minHeight: 24,
-                  }}
-                />
-                {/* Send */}
-                <button onClick={send}
-                  style={{ background: input.trim() ? C.accent : "transparent", border: "none", fontSize: 14, cursor: input.trim() ? "pointer" : "default", color: input.trim() ? "white" : "#d1d5db", padding: "5px 7px", flexShrink: 0, borderRadius: 7, lineHeight: 1, transition: "all 0.15s", alignSelf: "flex-end" }}
-                  title="Send">
+                <textarea ref={inputRef} value={input} onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown} placeholder="Type a message..." rows={1}
+                  style={{ flex: 1, border: "none", outline: "none", fontSize: 12.5, resize: "none", overflow: "hidden", lineHeight: 1.45, padding: "4px 2px", fontFamily: "inherit", backgroundColor: "transparent", minHeight: 24 }} />
+                <button onClick={send} style={{ background: input.trim() ? C.accent : "transparent", border: "none", fontSize: 14, cursor: input.trim() ? "pointer" : "default", color: input.trim() ? "#fff" : "#d1d5db", padding: "5px 7px", flexShrink: 0, borderRadius: 7, lineHeight: 1, transition: "all 0.15s" }} title="Send">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
                 </button>
               </div>
             </div>
           </div>
 
-          {/* ── ACTION BUTTON BAR (horizontal scroll with arrows) ── */}
-          <div style={{ padding: "6px 6px 8px", backgroundColor: "#fff", display: "flex", alignItems: "center", gap: 4, flexShrink: 0, borderTop: "1px solid #ececec" }}>
-            {/* Left arrow */}
+          {/* ── Action button bar (evenly spaced, horizontal scroll) ── */}
+          <div style={{ padding: "6px 8px 8px", backgroundColor: "#fff", display: "flex", alignItems: "center", flexShrink: 0, borderTop: "1px solid #ececec" }}>
             <button onClick={() => scrollAction("left")}
               style={{ width: 24, height: 24, minWidth: 24, border: `1px solid ${C.border}`, borderRadius: 6, background: "white", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#6b7280" }}>◀</button>
-            {/* Scrollable buttons */}
             <div ref={actionBarRef} className="chatbot-action-scroll"
-              style={{ flex: 1, display: "flex", gap: 6, overflowX: "auto", scrollBehavior: "smooth", alignItems: "center" }}>
+              style={{ flex: 1, display: "flex", overflowX: "auto", scrollBehavior: "smooth", alignItems: "center", justifyContent: "space-evenly" }}>
               {actionButtons.map((btn, idx) => {
                 const isActive = activeActionIdx === idx;
                 return (
                   <div key={btn.label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, flexShrink: 0 }}>
                     <button onClick={() => { setActiveActionIdx(idx); btn.action(); }}
-                      style={{
-                        width: 52, height: 52, minWidth: 52, minHeight: 52, borderRadius: 12,
-                        border: `1.5px solid ${isActive ? C.accent : C.border}`,
-                        backgroundColor: isActive ? "#eef1fd" : "white", cursor: "pointer",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        transition: "all 0.15s", flexShrink: 0,
-                        boxShadow: isActive ? `0 0 0 2px ${C.accent}44` : "none",
-                      }}
+                      style={{ width: 48, height: 48, minWidth: 48, minHeight: 48, borderRadius: 12, border: `1.5px solid ${isActive ? C.accent : C.border}`, backgroundColor: isActive ? "#eef1fd" : "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0, boxShadow: isActive ? `0 0 0 2px ${C.accent}44` : "none" }}
                       onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.backgroundColor = "#f0f4ff"; } }}
                       onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.backgroundColor = "white"; } }}>
-                      <span style={{ fontSize: 20, lineHeight: 1 }}>{btn.icon}</span>
+                      <span style={{ fontSize: 18, lineHeight: 1 }}>{btn.icon}</span>
                     </button>
                     <span style={{ fontSize: 9, fontWeight: 600, color: isActive ? C.accent : "#4b5563", lineHeight: 1, whiteSpace: "nowrap" }}>{btn.label}</span>
                   </div>
                 );
               })}
             </div>
-            {/* Right arrow */}
             <button onClick={() => scrollAction("right")}
               style={{ width: 24, height: 24, minWidth: 24, border: `1px solid ${C.border}`, borderRadius: 6, background: "white", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#6b7280" }}>▶</button>
           </div>
