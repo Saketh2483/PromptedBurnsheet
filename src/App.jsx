@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef, useReducer, createContext, useContext, useMemo } from "react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, Legend } from "recharts";
-import { RAW_COMPACT } from "./_data.js";
+import React, { useState, useEffect, useRef, useReducer, createContext, useContext, useMemo, useCallback } from "react";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 import { exportBurnsheetExcel } from "./exportExcel.js";
+
+const API_BASE = "http://localhost:8000";
 
 /* ═══════════════════ COLOR TOKENS & STYLES ═══════════════════ */
 const C = {
@@ -40,7 +41,9 @@ function parseRow(arr, idx) {
   return r;
 }
 
-const ALL_DATA = RAW_COMPACT.map(parseRow);
+/* Mutable reference to original data for comparison (set after fetch) */
+let _originalData = [];
+let _originalDataMap = new Map();
 
 /* ═══════════════════ DATA UTILITIES ═══════════════════ */
 function deriveFilterOptions(rows) {
@@ -86,10 +89,8 @@ const initialState = {
   filters: { poc: "", classification: "" },
   dollarRate: 86,
   dollarRateChanged: false,
-  allData: ALL_DATA,
-  tableData: [],
-  originalData: [],
-  loading: false,
+  allData: [],
+  loading: true,
   hasChanges: false,
   role: "Admin",
   showDashboard: true,
@@ -100,9 +101,13 @@ const initialState = {
 };
 function reducer(state, action) {
   switch (action.type) {
+    case "LOAD_DATA": {
+      _originalData = action.payload;
+      _originalDataMap = new Map(action.payload.map(r => [r.id, r]));
+      return { ...state, allData: action.payload, loading: false };
+    }
     case "SET_REGION": return { ...state, region: action.payload, currentPage: 1 };
     case "SET_FILTERS": return { ...state, filters: { ...state.filters, ...action.payload }, currentPage: 1 };
-    case "SET_TABLE_DATA": return { ...state, tableData: action.payload, originalData: JSON.parse(JSON.stringify(action.payload)), hasChanges: false };
     case "SET_LOADING": return { ...state, loading: action.payload };
     case "SET_ROLE": return { ...state, role: action.payload };
     case "SET_SHOW_DASHBOARD": return { ...state, showDashboard: action.payload };
@@ -110,6 +115,45 @@ function reducer(state, action) {
     case "SET_PAGE": return { ...state, currentPage: action.payload };
     case "SET_ROWS_PER_PAGE": return { ...state, rowsPerPage: action.payload, currentPage: 1 };
     case "SET_DOLLAR_RATE": return { ...state, dollarRate: action.payload, dollarRateChanged: true };
+    case "RECONCILE_ROWS": {
+      const ad = [...state.allData];
+      action.payload.forEach(u => {
+        const empId = String(u.empId).replace(/\.0$/, "");
+        const uName = (u.name || "").toLowerCase().trim();
+        let idx = ad.findIndex(r => r.empId === empId);
+        // Fallback: match by name if empId match fails
+        if (idx < 0 && uName) {
+          idx = ad.findIndex(r => r.name.toLowerCase().trim() === uName);
+        }
+        if (idx >= 0) {
+          const newHrs = parseFloat(u.newTimesheetHrs) || 0;
+          const newActual = u.newActualRate != null ? parseFloat(u.newActualRate) : null;
+          const newVariance = u.newVariance != null ? parseFloat(u.newVariance) : null;
+          const updated = { ...ad[idx], timesheetHrs: newHrs };
+          if (newActual != null) {
+            updated.actualRate = newActual;
+            updated.variance = newVariance != null ? newVariance : Math.round((newActual - updated.projectedRate) * 100) / 100;
+            updated.burnIndicator = updated.projectedRate > 0 ? Math.min(100, Math.round((newActual / updated.projectedRate) * 100)) : 0;
+            updated.jan26 = newActual;
+            updated.feb26 = newActual;
+            updated.mar26 = newActual;
+          } else {
+            const origRow = _originalData.find(r => r.empId === empId);
+            if (origRow) {
+              updated.actualRate = Math.round(origRow.rateUsd * newHrs * 100) / 100;
+              updated.projectedRate = origRow.projectedRate;
+              updated.variance = Math.round((updated.actualRate - updated.projectedRate) * 100) / 100;
+              updated.burnIndicator = updated.projectedRate > 0 ? Math.min(100, Math.round((updated.actualRate / updated.projectedRate) * 100)) : 0;
+              updated.jan26 = updated.actualRate;
+              updated.feb26 = updated.actualRate;
+              updated.mar26 = updated.actualRate;
+            }
+          }
+          ad[idx] = updated;
+        }
+      });
+      return { ...state, allData: [...ad], hasChanges: true };
+    }
     case "UPDATE_ROW": {
       const ad = [...state.allData];
       const idx = ad.findIndex(r => r.id === action.payload.id);
@@ -117,7 +161,7 @@ function reducer(state, action) {
         const updated = { ...ad[idx], ...action.payload.updates };
         if (action.payload.updates.timesheetHrs !== undefined) {
           const newHrs = parseFloat(action.payload.updates.timesheetHrs) || 0;
-          const origRow = ALL_DATA.find(r => r.id === action.payload.id);
+          const origRow = _originalDataMap.get(action.payload.id);
           if (origRow && origRow.timesheetHrs > 0) {
             updated.actualRate = Math.round(origRow.rateUsd * newHrs * 100) / 100;
             updated.projectedRate = origRow.projectedRate;
@@ -226,7 +270,7 @@ function Header() {
 }
 
 /* ═══════════════════ STAT CARD ═══════════════════ */
-function StatCard({ label, value, count, color }) {
+const StatCard = React.memo(function StatCard({ label, value, count, color }) {
   return (
     <div style={{ backgroundColor: "white", border: `1px solid ${C.border}`, borderRadius: 10, padding: "16px 20px", flex: 1 }}>
       <div style={{ fontSize: 13, fontWeight: 500, color: "#6b7280" }}>{label}</div>
@@ -235,7 +279,7 @@ function StatCard({ label, value, count, color }) {
       <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>Count: {count}</div>
     </div>
   );
-}
+});
 
 /* ═══════════════════ CHART TOOLTIP ═══════════════════ */
 function ChartTooltip({ active, payload }) {
@@ -818,7 +862,7 @@ function MultiSelectCell({ value, row, colOptions, dispatch }) {
 
 /* ═══════════════════ CHATBOT ═══════════════════ */
 function Chatbot() {
-  const { state } = useContext(AppContext);
+  const { state, dispatch, refreshData } = useContext(AppContext);
   const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState([]);
   const [input, setInput] = useState("");
@@ -859,19 +903,86 @@ function Chatbot() {
   };
 
   /* ── Respond logic ── */
-  const respond = (text) => {
+  const respond = async (text) => {
     const lower = text.toLowerCase().trim();
     if (lower === "/clear") { setMsgs([]); setInput(""); setFile(null); setPocStep(null); setCtxTitle(""); setActiveActionIdx(-1); return; }
     setMsgs(prev => [...prev, { sender: "user", text, file: file ? file.name : null }]);
     setFile(null); setTyping(true);
+
+    // Check if this is a reconcile request that should go to the agent
+    const isReconcile = /reconcile.*(?:timesheet|hours|hrs)|(?:update|change|set).*(?:timesheet|hours|hrs).*(?:for|of)|reconcile.*(?:emp|employee|\d{4,})/i.test(lower);
+
+    if (isReconcile) {
+      try {
+        // Try direct reconcile first (faster, no LLM needed)
+        // Extract identifier and hours from the prompt
+        const hrsMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:hours|hrs)/i);
+        const idMatch = text.match(/(?:emp(?:loyee)?(?:\s*id)?[:\s]+|for\s+|of\s+)(\d{4,})/i);
+        const nameMatch = text.match(/(?:for|of|employee)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/);
+
+        const identifier = idMatch ? idMatch[1] : (nameMatch ? nameMatch[1] : null);
+        const newHrs = hrsMatch ? parseFloat(hrsMatch[1]) : null;
+
+        if (identifier && newHrs) {
+          // Use direct endpoint (no LLM)
+          const res = await fetch(`${API_BASE}/reconcile-direct`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ identifier, newTimesheetHrs: newHrs }),
+          });
+          const data = await res.json();
+
+          if (data.status === "success" && data.updates) {
+            // Re-fetch fresh data from Excel immediately
+            await refreshData();
+
+            const summary = data.updates.map(u =>
+              `✅ ${u.name} (${u.empId}):\n   Timesheet: ${u.oldTimesheetHrs} → ${u.newTimesheetHrs} hrs\n   Actual Rate: $${u.newActualRate}\n   Variance: $${u.newVariance}`
+            ).join("\n\n");
+
+            setMsgs(prev => [...prev, {
+              sender: "assistant",
+              text: `🔄 Reconciliation Complete!\n\n${summary}\n\n${data.updates.length} row(s) updated. Changes are reflected in the table.`
+            }]);
+            dispatch({ type: "TOAST", payload: { type: "success", message: `Reconciled ${data.updates.length} row(s) successfully!` } });
+          } else if (data.error) {
+            setMsgs(prev => [...prev, { sender: "assistant", text: `❌ ${data.error}` }]);
+          }
+        } else {
+          // Fall back to LLM agent for complex prompts
+          const res = await fetch(`${API_BASE}/reconcile`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: text }),
+          });
+          const data = await res.json();
+
+          // Always re-fetch fresh data from Excel after agent response
+          await refreshData();
+
+          if (data.updates) {
+            dispatch({ type: "TOAST", payload: { type: "success", message: "Reconciliation applied!" } });
+          }
+
+          setMsgs(prev => [...prev, { sender: "assistant", text: data.response || data.detail || "Reconciliation complete." }]);
+        }
+      } catch (err) {
+        setMsgs(prev => [...prev, {
+          sender: "assistant",
+          text: `⚠️ Could not reach reconciliation agent at localhost:8000.\n\nMake sure the Python server is running:\n  python Reconcillation.py\n\nError: ${err.message}`
+        }]);
+      }
+      setTyping(false);
+      return;
+    }
+
+    // Local responses for non-reconcile queries
     setTimeout(() => {
       let reply = "";
       if (/^(hello|hi|hey)\b/.test(lower)) reply = "Hello! 👋 How can I help you with the burnsheet today?";
       else if (/export/.test(lower)) reply = "To export data, click the 📊 Export button in the toolbar. The data will be exported based on your current filters and region.";
       else if (/pdf/.test(lower)) reply = "To generate a PDF, click the 📄 PDF button. It will create a report based on the current view.";
       else if (/filter/.test(lower)) reply = "You can filter data by:\n• POC (dropdown in filter bar)\n• Classification (dropdown)\n• Region (India/USA tabs)\n\nFilters are applied in real-time.";
-      else if (/reconcile data/.test(lower)) reply = "Reconciliation process:\n1. The system compares actual vs projected rates\n2. Identifies discrepancies in timesheets\n3. Highlights variance exceeding thresholds\n4. Generates a reconciliation report";
-      else if (/reconcile/.test(lower)) reply = "The reconciliation process compares current data with the baseline. Click 🔄 Reconcile (amber button) to start.";
       else if (/save/.test(lower)) reply = "Click 💾 Save (green button) to save your changes. This is available for Admin users only.";
       else if (/skill/.test(lower)) reply = "Skills can be edited in the Resource Burn view. Click the + button in the Skill Set column to add skills, or × to remove them.";
       else if (/dashboard/.test(lower)) reply = "The Analytics Dashboard shows:\n• Monthly Burn Comparison\n• Missing Classifications\n• Classification Distribution\n• Tower Performance";
@@ -888,9 +999,10 @@ function Chatbot() {
       else if (/project/.test(lower)) reply = "To add a new project, click the Projects button below and upload an Excel file with the project details.";
       else if (/miscellaneous/.test(lower)) reply = "This is a general-purpose input area. You can type any miscellaneous request or query here.";
       else if (/thank/.test(lower)) reply = "You're welcome! 😊 Let me know if you need anything else.";
-      else reply = "I can help you with:\n• 💲 Dollar rate changes\n• 📋 POC / Resource management\n• 🔄 Data reconciliation\n• 📂 Project management\n• 📊 Export & PDF generation\n•  Burn analysis\n\nWhat would you like to know?";
+      else reply = "I can help you with:\n• 💲 Dollar rate changes\n• 📋 POC / Resource management\n• 🔄 Data reconciliation (e.g. \"Reconcile timesheet hours for employee 2298348 to 160 hours\")\n• 📂 Project management\n• 📊 Export & PDF generation\n• 📈 Burn analysis\n\nWhat would you like to know?";
       setMsgs(prev => [...prev, { sender: "assistant", text: reply }]);
       setTyping(false);
+      refreshData();
     }, 800);
   };
 
@@ -909,7 +1021,7 @@ function Chatbot() {
   const actionButtons = [
     { icon: "💲", label: "$", action: () => { setInput("Change the dollar value from 86 to "); setCtxTitle("CHANGE DOLLAR VALUE"); setPocStep(null); setFile(null); focusEnd(); } },
     { icon: "📋", label: "POC", action: () => { setInput(""); setPocStep("choose"); setCtxTitle(""); setFile(null); } },
-    { icon: "🔄", label: "Reconcile", action: () => { setInput("Reconcile the following data or process:\n"); setCtxTitle("RECONCILE DATA"); setPocStep(null); setFile(null); focusEnd(); } },
+    { icon: "🔄", label: "Reconcile", action: () => { setInput("Reconcile timesheet hours for employee "); setCtxTitle("RECONCILE TIMESHEET"); setPocStep(null); setFile(null); focusEnd(); } },
     { icon: "📂", label: "Projects", action: () => { setInput("Add a new project using the uploaded Excel file.\n"); setCtxTitle("ADD A NEW PROJECT"); setPocStep(null); setFile(null); focusEnd(); } },
     { icon: "📝", label: "Misc", action: () => { setInput("Enter your miscellaneous request here:\n"); setCtxTitle("MISCELLANEOUS"); setPocStep(null); setFile(null); focusEnd(); } },
   ];
@@ -1183,7 +1295,7 @@ function DataTable() {
   };
 
   const isEdited = (row) => {
-    const orig = ALL_DATA.find(r => r.id === row.id);
+    const orig = _originalDataMap.get(row.id);
     return orig && orig.timesheetHrs !== row.timesheetHrs;
   };
 
@@ -1205,7 +1317,7 @@ function DataTable() {
       );
     }
     if (col.edit === "input" && col.key === "timesheetHrs") {
-      const orig = ALL_DATA.find(o => o.id === r.id);
+      const orig = _originalDataMap.get(r.id);
       const changed = orig && orig.timesheetHrs !== r.timesheetHrs;
       return (
         <div>
@@ -1375,16 +1487,23 @@ function ResourceBurnView() {
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // Triple background enforcement
-  useEffect(() => {
-    const bg = C.bg;
-    [document.documentElement, document.body].forEach(el => { el.style.backgroundColor = bg; el.style.margin = "0"; el.style.padding = "0"; });
-    let el = document.getElementById("root");
-    while (el) { el.style.backgroundColor = bg; el = el.parentElement; }
+  // Fetch Excel data on mount
+  const refreshData = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/data?_t=${Date.now()}`, { cache: "no-store" });
+      const json = await res.json();
+      const parsed = json.data.map(parseRow);
+      dispatch({ type: "LOAD_DATA", payload: parsed });
+    } catch (e) {
+      console.error("Failed to load data", e);
+      dispatch({ type: "SET_LOADING", payload: false });
+    }
   }, []);
 
+  useEffect(() => { refreshData(); }, [refreshData]);
+
   return (
-    <AppContext.Provider value={{ state, dispatch }}>
+    <AppContext.Provider value={{ state, dispatch, refreshData }}>
       <GlobalStyles />
       {/* Fixed background div */}
       <div style={{ position: "fixed", inset: 0, zIndex: -1, backgroundColor: C.bg }} />
