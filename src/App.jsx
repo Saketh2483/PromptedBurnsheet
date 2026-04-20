@@ -134,9 +134,6 @@ function reducer(state, action) {
             updated.actualRate = newActual;
             updated.variance = newVariance != null ? newVariance : Math.round((newActual - updated.projectedRate) * 100) / 100;
             updated.burnIndicator = updated.projectedRate > 0 ? Math.min(100, Math.round((newActual / updated.projectedRate) * 100)) : 0;
-            updated.jan26 = newActual;
-            updated.feb26 = newActual;
-            updated.mar26 = newActual;
           } else {
             const origRow = _originalData.find(r => r.empId === empId);
             if (origRow) {
@@ -144,9 +141,6 @@ function reducer(state, action) {
               updated.projectedRate = origRow.projectedRate;
               updated.variance = Math.round((updated.actualRate - updated.projectedRate) * 100) / 100;
               updated.burnIndicator = updated.projectedRate > 0 ? Math.min(100, Math.round((updated.actualRate / updated.projectedRate) * 100)) : 0;
-              updated.jan26 = updated.actualRate;
-              updated.feb26 = updated.actualRate;
-              updated.mar26 = updated.actualRate;
             }
           }
           ad[idx] = updated;
@@ -167,9 +161,6 @@ function reducer(state, action) {
             updated.projectedRate = origRow.projectedRate;
             updated.variance = Math.round((updated.actualRate - updated.projectedRate) * 100) / 100;
             updated.burnIndicator = updated.projectedRate > 0 ? Math.min(100, Math.round((updated.actualRate / updated.projectedRate) * 100)) : 0;
-            updated.jan26 = updated.actualRate;
-            updated.feb26 = updated.actualRate;
-            updated.mar26 = updated.actualRate;
           }
         }
         ad[idx] = updated;

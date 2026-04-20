@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+python-dotenv
+openpyxl
+pydantic
+strands-agents
+strands-agents-bedrock

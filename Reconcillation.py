@@ -115,7 +115,7 @@ def reconcile_timesheet(
 
     # Required columns
     required = ["EMPId", "Name", "Timesheet", "Hourly Rate($)", "Projected Rate($)",
-                "Actual Rate", "Variance", "Jan-26", "Feb-26", "Mar-26"]
+                "Actual Rate", "Variance"]
     missing_cols = [c for c in required if c not in col_map]
     if missing_cols:
         return json.dumps({"error": f"Missing columns: {missing_cols}. Available: {list(col_map.keys())}"})
@@ -141,9 +141,6 @@ def reconcile_timesheet(
     proj_col = col_map["Projected Rate($)"]
     act_col = col_map["Actual Rate"]
     var_col = col_map["Variance"]
-    jan_col = col_map["Jan-26"]
-    feb_col = col_map["Feb-26"]
-    mar_col = col_map["Mar-26"]
 
     updates = []
     for row_num in matched_rows:
@@ -154,15 +151,12 @@ def reconcile_timesheet(
         # Update timesheet hours
         ws.cell(row=row_num, column=ts_col).value = new_timesheet_hrs
 
-        # Recalculate
+        # Recalculate actual rate and variance (monthly columns remain unchanged)
         new_actual = round(rate_usd * new_timesheet_hrs, 2)
         new_variance = round(new_actual - projected, 2)
 
         ws.cell(row=row_num, column=act_col).value = new_actual
         ws.cell(row=row_num, column=var_col).value = new_variance
-        ws.cell(row=row_num, column=jan_col).value = new_actual
-        ws.cell(row=row_num, column=feb_col).value = new_actual
-        ws.cell(row=row_num, column=mar_col).value = new_actual
 
         emp_id_raw = str(ws.cell(row=row_num, column=id_col).value or "").strip()
         # Remove trailing .0 from float-like IDs (e.g. "2298348.0" -> "2298348")
@@ -258,7 +252,7 @@ def _get_agent():
                 "Verizon TQ Description, POC, EMPId, Name, Location, Country, ACT/PCT, "
                 "Skill Set, Verizon Level Mapping, Classification, Key, Cognizant Designation, "
                 "Service Line, Timesheet, Hourly Rate(Rs), Hourly Rate($), Projected Rate($), "
-                "Actual Rate, Variance, Jan-26, Feb-26, Mar-26.\n\n"
+                "Actual Rate, Variance.\n\n"
                 "When asked to reconcile, use the 'reconcile_timesheet' tool to update "
                 "the Timesheet Hrs for the specified employee. Extract the employee "
                 "identifier (empId or name) and the new hours value from the user prompt.\n"
