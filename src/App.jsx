@@ -997,7 +997,17 @@ function Chatbot() {
     }, 800);
   };
 
-  const send = () => { const t = input.trim(); if (!t) return; setInput(""); setCtxTitle(""); setPocStep(null); respond(t); };
+  const send = () => {
+    let t = input.trim();
+    // If POC file is attached, auto-compose the message
+    if (file && ctxTitle.includes("NEW POC")) {
+      const comment = t ? `\n\nAdditional comments: ${t}` : "";
+      t = `Create a new POC using the uploaded Excel file: ${file.name}${comment}`;
+    }
+    if (!t && !file) return;
+    if (!t && file) t = `Uploaded file: ${file.name}`;
+    setInput(""); setCtxTitle(""); setPocStep(null); respond(t);
+  };
   const handleKeyDown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
 
   /* Action bar scroll */
@@ -1011,7 +1021,13 @@ function Chatbot() {
   /* Action buttons */
   const actionButtons = [
     { icon: "💲", label: "$", action: () => { setInput("Change the dollar value from 86 to "); setCtxTitle("CHANGE DOLLAR VALUE"); setPocStep(null); setFile(null); focusEnd(); } },
-    { icon: "📋", label: "POC", action: () => { setInput(""); setPocStep("choose"); setCtxTitle(""); setFile(null); } },
+    { icon: "📋", label: "POC", action: () => {
+      setInput(""); setPocStep(null); setCtxTitle("UPDATE CHANGES — UPLOAD EXCEL"); setFile(null);
+      const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".xlsx,.xls,.csv";
+      inp.onchange = (ev) => { const f = ev.target.files[0]; if (!f) return; setFile(f); setInput(""); focusEnd(); };
+      inp.click();
+      focusEnd();
+    } },
     { icon: "🔄", label: "Reconcile", action: () => { setInput("Reconcile timesheet hours for employee "); setCtxTitle("RECONCILE TIMESHEET"); setPocStep(null); setFile(null); focusEnd(); } },
     { icon: "📂", label: "Projects", action: () => { setInput("Add a new project using the uploaded Excel file.\n"); setCtxTitle("ADD A NEW PROJECT"); setPocStep(null); setFile(null); focusEnd(); } },
     { icon: "📝", label: "Misc", action: () => { setInput("Enter your miscellaneous request here:\n"); setCtxTitle("MISCELLANEOUS"); setPocStep(null); setFile(null); focusEnd(); } },
@@ -1064,27 +1080,6 @@ function Chatbot() {
               </div>
             )}
           </div>
-
-          {/* ── POC inline choices ── */}
-          {pocStep === "choose" && (
-            <div style={{ padding: "6px 14px 6px", borderTop: "1px solid #ececec", display: "flex", flexDirection: "column", gap: 5, backgroundColor: "#fff", flexShrink: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#6b7280" }}>Select an option:</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {[{ label: "📋 New POC", title: "CREATE A NEW POC", prompt: "Create a new POC using the uploaded Excel file.\n" },
-                  { label: "👤 New Resource", title: "ADD A NEW RESOURCE", prompt: "Add a new resource using the uploaded Excel file.\n" }
-                ].map((opt, oi) => (
-                  <button key={oi} onClick={() => {
-                    const inp = document.createElement("input"); inp.type = "file"; inp.accept = ".xlsx,.xls,.csv";
-                    inp.onchange = (ev) => { const f = ev.target.files[0]; if (!f) return; setFile(f); setPocStep(null); setCtxTitle(opt.title); setInput(opt.prompt); focusEnd(); };
-                    inp.click();
-                  }} style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: `1.5px solid ${C.accent}`, backgroundColor: "white", color: C.accent, fontSize: 14, fontWeight: 700, cursor: "pointer", transition: "all 0.15s" }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eef1fd"; }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = "white"; }}>
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* ── Input area (min 56px card, auto-expands) ── */}
           <div style={{ backgroundColor: "#fff", padding: "6px 10px 4px", borderTop: "1px solid #ececec", flexShrink: 0 }}>
