@@ -863,12 +863,11 @@ function Chatbot() {
   const [typing, setTyping] = useState(false);
   const [hoverBtn, setHoverBtn] = useState(false);
   const [activeActionIdx, setActiveActionIdx] = useState(-1);
+  const [isMaximized, setIsMaximized] = useState(false);
   const inputRef = useRef(null);
   const fileRef = useRef(null);
   const scrollRef = useRef(null);
   const actionBarRef = useRef(null);
-
-  const CHAT_W = 390, CHAT_H = 380;
 
   /* Scroll chat to bottom */
   useEffect(() => { if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight; }, [msgs, typing]);
@@ -1042,20 +1041,27 @@ function Chatbot() {
         <img src={ROBOT_ICON} alt="Chat" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
       </button>
 
-      {/* Chat Panel — fixed 390×380 */}
+      {/* Chat Panel — normal 390×380, maximized 700×600 */}
       {open && (
-        <div style={{ position: "fixed", bottom: 76, right: 24, width: CHAT_W, height: CHAT_H, minWidth: CHAT_W, minHeight: CHAT_H, maxWidth: CHAT_W, maxHeight: CHAT_H, backgroundColor: "#fff", borderRadius: 14, boxShadow: "0 8px 32px rgba(0,0,0,0.22)", zIndex: 150, overflow: "hidden", display: "flex", flexDirection: "column", animation: "fadeIn 0.2s ease" }}>
+        <div style={{ position: "fixed", bottom: 76, right: 24, width: isMaximized ? 700 : 390, height: isMaximized ? 600 : 380, backgroundColor: "#fff", borderRadius: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.2)", zIndex: 150, overflow: "hidden", display: "flex", flexDirection: "column", transition: "width 0.3s ease, height 0.3s ease" }}>
 
           {/* ── Title bar ── */}
-          <div style={{ background: `linear-gradient(135deg, ${C.purple1}, ${C.purple2})`, color: "#fff", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          <div style={{ ...S.gradientPurple, color: "#fff", padding: "10px 14px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <div style={{ width: 30, height: 30, borderRadius: "50%", overflow: "hidden", flexShrink: 0, border: "2px solid rgba(255,255,255,0.3)" }}>
               <img src={ROBOT_ICON} alt="Bot" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>Burnsheet Assistant</div>
-              <div style={{ fontSize: 14, opacity: 0.95, marginTop: 2, lineHeight: 1.3 }}>Hi! 👋 How can I help you today?</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "white" }}>Burnsheet Assistant</div>
+              <div style={{ fontSize: 12, fontWeight: 400, color: "rgba(255,255,255,0.85)", marginTop: 2 }}>Hi! 👋 How can I help you today?</div>
             </div>
-            <button onClick={() => setOpen(false)} style={{ background: "rgba(255,255,255,0.15)", border: "none", color: "#fff", fontSize: 15, cursor: "pointer", padding: "3px 7px", borderRadius: 6, lineHeight: 1, flexShrink: 0 }}>✕</button>
+            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              <button onClick={() => setIsMaximized(!isMaximized)}
+                style={{ background: "none", border: "none", color: "white", fontSize: 16, cursor: "pointer", padding: "2px 4px", display: "flex", alignItems: "center" }}
+                title={isMaximized ? "Minimize" : "Maximize"}>
+                {isMaximized ? "🗕" : "🗖"}
+              </button>
+              <button onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: "#fff", fontSize: 18, cursor: "pointer", padding: "2px 4px", display: "flex", alignItems: "center" }}>✕</button>
+            </div>
           </div>
 
           {/* ── Chat history (Copilot-style continuous stream) ── */}
@@ -1063,20 +1069,33 @@ function Chatbot() {
             {msgs.length === 0 && !typing && (
               <div style={{ textAlign: "center", color: "#b0b8c4", fontSize: 12, marginTop: 30 }}>Start a conversation below or click an action button.</div>
             )}
-            {msgs.map((m, i) => (
-              <div key={i} style={{ marginBottom: 10, animation: "slideIn 0.2s ease", display: "flex", flexDirection: "column", alignItems: m.sender === "user" ? "flex-end" : "flex-start" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2, flexDirection: m.sender === "user" ? "row-reverse" : "row" }}>
-                  {m.sender === "assistant" && <div style={{ width: 16, height: 16, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src={ROBOT_ICON} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>}
-                  <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: m.sender === "user" ? C.accent : "#8b95a5" }}>{m.sender === "user" ? "You" : "Assistant"}</span>
-                </div>
-                <div style={{ fontSize: 12.5, color: "#1f2937", lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word", maxWidth: "88%", textAlign: m.sender === "user" ? "right" : "left" }}>{m.text}</div>
+            {msgs.map((m, i) => m.sender === "user" ? (
+              <div key={i} style={{ textAlign: "right", marginBottom: 8 }}>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: C.accent }}>YOU</div>
+                <div style={{ fontSize: 12, color: "#1f2937", lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", display: "inline-block", textAlign: "left", maxWidth: "85%" }}>{m.text}</div>
                 {m.file && <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>📎 {m.file}</div>}
+              </div>
+            ) : (
+              <div key={i} style={{ textAlign: "left", marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <img src={ROBOT_ICON} alt="Bot" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover", flexShrink: 0, marginTop: 2 }} />
+                  <div>
+                    <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "#6b7280" }}>ASSISTANT</div>
+                    <div style={{ fontSize: 12, color: "#1f2937", lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", maxWidth: "85%" }}>{m.text}</div>
+                    {m.file && <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2 }}>📎 {m.file}</div>}
+                  </div>
+                </div>
               </div>
             ))}
             {typing && (
-              <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 0 2px" }}>
-                <div style={{ width: 16, height: 16, borderRadius: "50%", overflow: "hidden", flexShrink: 0 }}><img src={ROBOT_ICON} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
-                <div style={{ display: "flex", gap: 3 }}>{[0, 1, 2].map(j => <div key={j} style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#9ca3af", animation: `bounce 1.4s infinite ${j * 0.2}s` }} />)}</div>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                <img src={ROBOT_ICON} alt="Bot" style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                <div>
+                  <div style={{ fontSize: 9, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, color: "#6b7280" }}>ASSISTANT</div>
+                  <div style={{ display: "flex", gap: 4, paddingTop: 4 }}>
+                    {[0, 1, 2].map(j => <div key={j} style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: "#9ca3af", animation: `bounce 1.4s infinite ${j * 0.16}s` }} />)}
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -1107,29 +1126,40 @@ function Chatbot() {
             </div>
           </div>
 
-          {/* ── Action button bar (evenly spaced, horizontal scroll) ── */}
-          <div style={{ padding: "6px 8px 8px", backgroundColor: "#fff", display: "flex", alignItems: "center", flexShrink: 0, borderTop: "1px solid #ececec" }}>
-            <button onClick={() => scrollAction("left")}
-              style={{ width: 24, height: 24, minWidth: 24, border: `1px solid ${C.border}`, borderRadius: 6, background: "white", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#6b7280" }}>◀</button>
+          {/* ── Action button bar (expands when maximized) ── */}
+          <div style={{ padding: isMaximized ? "6px 14px 10px" : "4px 10px 8px", backgroundColor: "#fafbff", display: "flex", alignItems: "center", gap: isMaximized ? 10 : 6, flexShrink: 0, borderTop: "1px solid #ececec" }}>
+            {!isMaximized && <button onClick={() => scrollAction("left")}
+              style={{ width: 24, height: 24, minWidth: 24, border: `1px solid ${C.border}`, borderRadius: 6, background: "white", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#6b7280" }}>◀</button>}
             <div ref={actionBarRef} className="chatbot-action-scroll"
-              style={{ flex: 1, display: "flex", overflowX: "auto", scrollBehavior: "smooth", alignItems: "center", justifyContent: "space-evenly" }}>
+              style={{ flex: 1, display: "flex", overflowX: isMaximized ? "visible" : "auto", scrollBehavior: "smooth", alignItems: "center", gap: isMaximized ? 10 : 6, justifyContent: isMaximized ? "stretch" : "space-evenly" }}>
               {actionButtons.map((btn, idx) => {
                 const isActive = activeActionIdx === idx;
                 return (
-                  <div key={btn.label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, flexShrink: 0 }}>
-                    <button onClick={() => { setActiveActionIdx(idx); btn.action(); }}
-                      style={{ width: 48, height: 48, minWidth: 48, minHeight: 48, borderRadius: 12, border: `1.5px solid ${isActive ? C.accent : C.border}`, backgroundColor: isActive ? "#eef1fd" : "white", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.15s", flexShrink: 0, boxShadow: isActive ? `0 0 0 2px ${C.accent}44` : "none" }}
-                      onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.backgroundColor = "#f0f4ff"; } }}
-                      onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.backgroundColor = "white"; } }}>
-                      <span style={{ fontSize: 18, lineHeight: 1 }}>{btn.icon}</span>
-                    </button>
-                    <span style={{ fontSize: 9, fontWeight: 600, color: isActive ? C.accent : "#4b5563", lineHeight: 1, whiteSpace: "nowrap" }}>{btn.label}</span>
-                  </div>
+                  <button key={btn.label} onClick={() => { setActiveActionIdx(idx); btn.action(); }}
+                    style={{
+                      flex: isMaximized ? 1 : "none",
+                      minWidth: isMaximized ? "auto" : 62,
+                      height: isMaximized ? 38 : 30,
+                      paddingInline: isMaximized ? 0 : 10,
+                      borderRadius: isMaximized ? 10 : 8,
+                      border: `1.5px solid ${isActive ? C.accent : C.border}`,
+                      backgroundColor: isActive ? "#eef1fd" : "white",
+                      cursor: "pointer",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      gap: isMaximized ? 6 : 3,
+                      transition: "all 0.15s", flexShrink: 0,
+                      boxShadow: isActive ? `0 0 0 2px ${C.accent}44` : "none",
+                    }}
+                    onMouseEnter={e => { if (!isActive) { e.currentTarget.style.borderColor = C.accent; e.currentTarget.style.backgroundColor = "#f0f4ff"; } }}
+                    onMouseLeave={e => { if (!isActive) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.backgroundColor = "white"; } }}>
+                    <span style={{ fontSize: isMaximized ? 16 : 14, lineHeight: 1 }}>{btn.icon}</span>
+                    <span style={{ fontSize: isMaximized ? 13 : 11, fontWeight: 600, color: isActive ? C.accent : "#4b5563", whiteSpace: "nowrap" }}>{btn.label}</span>
+                  </button>
                 );
               })}
             </div>
-            <button onClick={() => scrollAction("right")}
-              style={{ width: 24, height: 24, minWidth: 24, border: `1px solid ${C.border}`, borderRadius: 6, background: "white", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#6b7280" }}>▶</button>
+            {!isMaximized && <button onClick={() => scrollAction("right")}
+              style={{ width: 24, height: 24, minWidth: 24, border: `1px solid ${C.border}`, borderRadius: 6, background: "white", cursor: "pointer", fontSize: 10, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#6b7280" }}>▶</button>}
           </div>
         </div>
       )}
