@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useReducer, createContext, useContext, useMemo, useCallback } from "react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from "recharts";
 import { exportBurnsheetExcel } from "./exportExcel.js";
+import { exportToPDF } from "./exportToPDF.js";
+import PDFLoading from "./PDFLoading";
 import Login from "./Login";
 
 const API_BASE = "http://localhost:8000";
@@ -1455,7 +1457,7 @@ function DataTable() {
 
 /* ═══════════════════ COMBINED DASHBOARD ═══════════════════ */
 function CombinedDashboard() {
-  const { state, dispatch } = useContext(AppContext);
+  const { state, dispatch, handleExportPDF } = useContext(AppContext);
   return (
     <div style={{ padding: "20px 28px" }}>
       {/* Tab Bar */}
@@ -1477,7 +1479,7 @@ function CombinedDashboard() {
             style={{ padding: "8px 16px", borderRadius: 8, border: "none", color: "white", fontWeight: 600, fontSize: 13, cursor: "pointer", backgroundColor: "#f59e0b" }}>
             📊 Export
           </button>
-          <button onClick={() => dispatch({ type: "TOAST", payload: { type: "info", message: "PDF generation started..." } })}
+          <button onClick={async () => { dispatch({ type: "TOAST", payload: { type: "info", message: "PDF generation started..." } }); try { await handleExportPDF(); dispatch({ type: "TOAST", payload: { type: "success", message: "PDF exported!" } }); } catch(e) { dispatch({ type: "TOAST", payload: { type: "error", message: "PDF failed: " + e.message } }); } }}
             style={{ padding: "8px 16px", borderRadius: 8, border: "none", color: "white", fontWeight: 600, fontSize: 13, cursor: "pointer", backgroundColor: "#ef4444" }}>
             📄 PDF
           </button>
@@ -1511,6 +1513,12 @@ function ResourceBurnView() {
 export default function App() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  const chartBarRef = useRef(null);
+  const chartPieRef = useRef(null);
+  const chartHomeRef = useRef(null);
+  const chartMissingRef = useRef(null);
 
   // Fetch Excel data on mount
   const refreshData = useCallback(async () => {
@@ -1527,13 +1535,35 @@ export default function App() {
 
   useEffect(() => { if (loggedIn) refreshData(); }, [loggedIn, refreshData]);
 
+  const handleExportPDF = useCallback(async () => {
+    await exportToPDF(
+      state.allData, state.region,
+      chartBarRef, chartPieRef, chartHomeRef, chartMissingRef,
+      setPdfLoading
+    );
+  }, [state.allData, state.region]);
+
   if (!loggedIn) {
     return <Login onLogin={() => setLoggedIn(true)} />;
   }
 
   return (
-    <AppContext.Provider value={{ state, dispatch, refreshData, onLogout: () => setLoggedIn(false) }}>
+    <AppContext.Provider value={{ state, dispatch, refreshData, onLogout: () => setLoggedIn(false), handleExportPDF }}>
       <GlobalStyles />
+      <PDFLoading pdfLoading={pdfLoading} />
+      {/* Hidden off-screen chart containers for PDF capture */}
+      <div ref={chartBarRef} style={{ position: 'fixed', left: -99999, top: -99999, width: 1200, background: '#fff', visibility: 'visible', pointerEvents: 'none', padding: 20 }}>
+        <MonthlyBurnComparison />
+      </div>
+      <div ref={chartPieRef} style={{ position: 'fixed', left: -99999, top: -99999, width: 1200, background: '#fff', visibility: 'visible', pointerEvents: 'none', padding: 20 }}>
+        <ResourceFlags />
+      </div>
+      <div ref={chartHomeRef} style={{ position: 'fixed', left: -99999, top: -99999, width: 1200, background: '#fff', visibility: 'visible', pointerEvents: 'none', padding: 20 }}>
+        <MissingClassificationsAlert />
+      </div>
+      <div ref={chartMissingRef} style={{ position: 'fixed', left: -99999, top: -99999, width: 1200, background: '#fff', visibility: 'visible', pointerEvents: 'none', padding: 20 }}>
+        <MissingClassificationsAlert />
+      </div>
       {/* Fixed background div */}
       <div style={{ position: "fixed", inset: 0, zIndex: -1, backgroundColor: C.bg }} />
       <div style={{ ...S.pageBg, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" }}>
